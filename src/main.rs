@@ -1,4 +1,4 @@
-use khroma::models::{CollectionConfiguration, CreateCollectionPayload, EmbeddingFunctionConfiguration, EmbeddingFunctionNewConfiguration};
+use khroma::models::{CollectionConfiguration, CreateCollectionPayload, EmbeddingFunctionConfiguration, EmbeddingFunctionNewConfiguration, GetRequestPayload, Include, IncludeList};
 use khroma::Khroma;
 use serde_json::json;
 use std::io::{stdin, stdout, Write};
@@ -105,6 +105,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("{} {} {}", x.id, x.name, x.count().await?);
                 };
             }
+            ["collection", "read", tenant, database, collection_name] => {
+                let tenant = khroma.get_tenant(tenant).await?;
+                let database = tenant.get_database(database).await?;
+                let collection = database.get_collection(collection_name).await?;
+
+                let payload = GetRequestPayload {
+                    where_fields: Default::default(),
+                    ids: None,
+                    include: Some(vec![ Include::Documents, Include::Metadatas ]),
+                    limit: Some(i32::MAX),
+                    offset: None,
+                };
+
+                let resp = collection.get(&payload).await?;
+
+                let docs = resp.documents.unwrap();
+                let meta = resp.metadatas.unwrap();
+                for i in 0..resp.ids.len() {
+                    let mut doc = match &docs[i] {
+                        Some(doc) => doc.to_string(),
+                        None => "<null>".into()
+                    };
+                    if doc.len() > 64 {
+                        doc = format!("{}...", doc[..64].to_string());
+                    }
+
+                    let doc = serde_json::to_string(&doc)?;
+
+                    let meta = match &meta[i] {
+                        Some(meta) => serde_json::to_string(&meta)?,
+                        None => "<null>".into()
+                    };
+
+                    println!("{} {} {}", resp.ids[i], meta, doc)
+                }
+            }
             ["help"] => {
                 println!(
                     r#"Available commands:
@@ -128,6 +164,7 @@ Collection Management:
   collection del <t> <d> <c>        - Deletes a collection.
   collection get <t> <d> <c>        - Retrieves a collection and shows its item count.
   collection ls <t> <d>             - Lists all collections in a database.
+  collection read <t> <d> <c>       - Reads a collection.
 
 General:
   help                            - Shows this help message.
